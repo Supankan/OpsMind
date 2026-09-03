@@ -238,7 +238,7 @@ The implementation strictly adhered to `OpsMind_Pass02_Design_Spec.md` and `OpsM
 ## 11. Git Commit History & Working Tree Status
 
 - **Baseline Pass 02 Commit:** `5dcb7a6` (`feat: add incident and investigation control plane`)
-- **Review Fixes Commit:** Will be committed as `fix: harden investigation registration concurrency`
+- **Review Fixes Commit:** `8a0d057` (`fix: harden investigation registration concurrency`)
 - **Branch:** `main`
 - **Working Tree:** Clean.
 
