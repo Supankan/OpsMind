@@ -33,7 +33,7 @@ Strict adherence to explicit non-goals was maintained throughout:
 - **WSL2 Mounted Path:** `/mnt/f/PycharmProjects/Random/RandomML/2026/OpsMind`
 - **Package & Project Manager:** `uv 0.12.9` installed in WSL (`~/.local/bin/uv`).
 - **Python Runtime:** Python `3.13.15` (CPython Linux x86_64), managed via `uv python install 3.13`.
-- **Container Infrastructure:** Docker Desktop v5.5.0 with WSL2 backend.
+- **Container Infrastructure:** Docker Desktop `4.89.0` (Docker Engine `29.7.2`, Docker Compose `v5.5.0`) with WSL2 backend.
   - Active containers:
     - `opsmind-postgres` (`postgres:16-alpine`, port 5432) — **NEW**
     - `milvus-standalone` (`milvusdb/milvus:v2.6.22`, ports 9091, 19530) — existing

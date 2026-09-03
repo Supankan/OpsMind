@@ -1,5 +1,7 @@
 """Integration tests for PostgreSQL connectivity and ORM persistence."""
 
+import time
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -74,3 +76,59 @@ def test_incident_and_run_persistence_lifecycle(db_session: Session) -> None:
     # Verify both incident and run are deleted
     assert db_session.get(Incident, incident_id) is None
     assert db_session.get(InvestigationRun, run_id) is None
+
+
+def test_incident_updated_at_advances(db_session: Session) -> None:
+    """Verify that Incident.updated_at automatically advances when modified."""
+    incident = Incident(
+        title="Initial Incident",
+        description="Original description",
+    )
+    db_session.add(incident)
+    db_session.commit()
+    db_session.refresh(incident)
+
+    original_updated_at = incident.updated_at
+    assert original_updated_at is not None
+
+    time.sleep(0.05)
+
+    incident.title = "Updated Incident Title"
+    db_session.commit()
+    db_session.refresh(incident)
+
+    assert incident.updated_at > original_updated_at
+
+    db_session.delete(incident)
+    db_session.commit()
+
+
+def test_investigation_run_updated_at_advances(db_session: Session) -> None:
+    """Verify that InvestigationRun.updated_at automatically advances when modified."""
+    incident = Incident(
+        title="Incident for Run Update Test",
+    )
+    db_session.add(incident)
+    db_session.commit()
+
+    run = InvestigationRun(
+        incident_id=incident.id,
+        status=InvestigationRunStatus.PENDING,
+    )
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+
+    original_updated_at = run.updated_at
+    assert original_updated_at is not None
+
+    time.sleep(0.05)
+
+    run.status = InvestigationRunStatus.RUNNING
+    db_session.commit()
+    db_session.refresh(run)
+
+    assert run.updated_at > original_updated_at
+
+    db_session.delete(incident)
+    db_session.commit()
