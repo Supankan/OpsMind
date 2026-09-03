@@ -46,6 +46,8 @@ htmlcov/
 
 # Database & Infrastructure
 postgres_data/
+infra/otel-demo/upstream/
+
 
 # OS
 .DS_Store

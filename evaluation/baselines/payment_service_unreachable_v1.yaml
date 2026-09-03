@@ -1,0 +1,107 @@
+# OpsMind Evaluator Baseline Manifest
+# Scenario: paymentServiceUnreachable
+#
+# IMPORTANT NOTICE: GROUND-TRUTH ISOLATION
+# This file is strictly evaluator infrastructure and test oracle specification.
+# It contains ground-truth fault injection parameters and expected telemetry manifestations.
+# Under NO circumstances should this file or any file in evaluation/ be indexed or ingested
+# into the future OpsMind Milvus RAG knowledge corpus.
+
+schema_version: "1.0"
+scenario_id: "payment_service_unreachable_v1"
+name: "Payment Service Unreachable from Checkout"
+description: >
+  Simulates a failure in the checkout service where the payment service address is set to an unreachable
+  address (badAddress:50051) via feature flag, causing gRPC client name resolution failure and downstream
+  HTTP 500 errors on checkout submissions.
+
+sut:
+  name: "opentelemetry-demo"
+  release_tag: "3.0.0"
+  git_commit: "1755859a9de82c2e5e225be68abc401a5ebf2b4f"
+  deployment_mode: "minimal-core-observability"
+  image_tag: "3.0.0"
+
+fault:
+  flag_name: "paymentUnreachable"
+  flag_provider: "flagd"
+  flag_target_service: "checkout"
+  injection_mechanism: "flagd feature flag defaultVariant toggle (off -> on)"
+  simulated_behavior: "checkout service connects to badAddress:50051 instead of payment:50051"
+
+experiment_windows:
+  phase_a_healthy_baseline:
+    start_utc: "2026-09-03T12:12:04.414529+00:00"
+    end_utc: "2026-09-03T12:12:34.413269+00:00"
+    verified_trace_id: "b9779bf5481560b0b7664d37d9482926"
+    status: "healthy_no_errors"
+  phase_b_fault_active:
+    start_utc: "2026-09-03T12:12:36.621356+00:00"
+    end_utc: "2026-09-03T12:13:42.703837+00:00"
+    verified_trace_id: "326645aaa2d4cfbc64bcbc1def4216d9"
+    status: "fault_manifested_errors_observed"
+  phase_c_recovery:
+    start_utc: "2026-09-03T12:13:45.021000+00:00"
+    end_utc: "2026-09-03T12:14:30.000000+00:00"
+    verified_trace_id: "cd39cbbc4c7578436cdd83eb1f07df7f"
+    status: "recovered_healthy_cleared_errors"
+
+telemetry_evidence:
+  traces:
+    backend: "Jaeger"
+    endpoint: "http://127.0.0.1:16686/jaeger/ui"
+    query_example: "GET /jaeger/ui/api/traces?service=checkout&limit=10"
+    root_service: "frontend-proxy"
+    failing_service: "checkout"
+    target_service: "payment"
+    error_spans:
+      - service: "checkout"
+        operation: "oteldemo.PaymentService/Charge"
+        error_tags:
+          error: true
+          otel.status_code: "ERROR"
+          otel.status_description: "name resolver error: produced zero addresses"
+      - service: "checkout"
+        operation: "oteldemo.CheckoutService/PlaceOrder"
+        error_tags:
+          error: true
+          otel.status_code: "ERROR"
+          otel.status_description: "failed to charge card: could not charge the card: rpc error: code = Unavailable desc = name resolver error: produced zero addresses"
+        log_events:
+          exception.message: "could not charge the card: rpc error: code = Unavailable desc = name resolver error: produced zero addresses"
+          feature_flag.key: "paymentUnreachable"
+          feature_flag.result.variant: "on"
+      - service: "frontend"
+        operation: "POST /api/checkout"
+        error_tags:
+          error: true
+          http.status_code: 500
+          rpc.grpc.status_code: 13
+      - service: "frontend-proxy"
+        operation: "POST"
+        error_tags:
+          error: true
+          http.status_code: 500
+
+  logs:
+    backend: "OpenSearch"
+    endpoint: "http://127.0.0.1:9200"
+    index_pattern: "otel-logs-YYYY-MM-DD"
+    query_example: >
+      POST /_search
+      {"query": {"bool": {"must": [{"match": {"resource.service.name": "frontend-proxy"}}, {"match_phrase": {"body": "500"}}]}}}
+    evidence_records:
+      - service: "frontend-proxy"
+        body_pattern: 'POST /api/checkout HTTP/1.1" 500 - via_upstream'
+        timestamp: "2026-09-03T12:12:51.306Z"
+
+  metrics:
+    backend: "Prometheus"
+    endpoint: "http://127.0.0.1:9090"
+    query_expressions:
+      - expr: 'traces_span_metrics_calls_total{service_name="checkout", span_name="oteldemo.PaymentService/Charge", status_code="STATUS_CODE_ERROR"}'
+        description: "Direct error call counter for checkout calling payment charge"
+        observed_value: 2
+      - expr: 'traces_span_metrics_calls_total{service_name="frontend-proxy", span_name="POST", status_code="STATUS_CODE_ERROR"}'
+        description: "HTTP 500 error count on proxy ingress during checkout submission"
+        observed_value: 8

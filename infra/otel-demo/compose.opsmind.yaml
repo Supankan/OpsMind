@@ -1,0 +1,17 @@
+# OpsMind OpenTelemetry Demo Compose Overlay
+# Publishes missing host port mappings for Jaeger and OpenSearch on loopback.
+# Note: frontend-proxy (8080) and prometheus (9090) are already published by upstream.
+
+services:
+  opensearch:
+    ports:
+      - "127.0.0.1:9200:9200"
+    healthcheck:
+      start_period: 30s
+      interval: 5s
+      timeout: 10s
+      retries: 20
+
+  jaeger:
+    ports:
+      - "127.0.0.1:16686:16686"
