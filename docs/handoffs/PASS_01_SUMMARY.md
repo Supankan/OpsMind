@@ -192,7 +192,7 @@ OpsMind/
 | `resolved_at` | `TIMESTAMPTZ` | Nullable | When incident was resolved |
 | `trigger_payload` | `JSONB` | NOT NULL, `default={}` | Raw alert/trigger JSON payload |
 | `created_at` | `TIMESTAMPTZ` | NOT NULL, `server_default=now()` | Record creation timestamp |
-| `updated_at` | `TIMESTAMPTZ` | NOT NULL, `server_default=now()` | Record update timestamp |
+| `updated_at` | `TIMESTAMPTZ` | NOT NULL, `server_default=now()`, `onupdate=now()` | Record update timestamp (ORM-managed) |
 
 ### Table `investigation_runs`
 | Column | Type | Constraints / Defaults | Description |
@@ -212,7 +212,10 @@ OpsMind/
 | `root_cause_summary` | `TEXT` | Nullable | Evidence-backed root cause conclusion |
 | `failure_reason` | `TEXT` | Nullable | Error or failure reason if run aborted |
 | `created_at` | `TIMESTAMPTZ` | NOT NULL, `server_default=now()` | Record creation timestamp |
-| `updated_at` | `TIMESTAMPTZ` | NOT NULL, `server_default=now()` | Record update timestamp |
+| `updated_at` | `TIMESTAMPTZ` | NOT NULL, `server_default=now()`, `onupdate=now()` | Record update timestamp (ORM-managed) |
+
+> **Timestamp update semantics:** The initial creation and update timestamps are populated by PostgreSQL via `server_default=func.now()` (DDL `DEFAULT now()`). Subsequent modifications automatically update `updated_at` via SQLAlchemy's ORM unit-of-work mechanism (`onupdate=func.now()`), which injects `updated_at = now()` into the SQL `UPDATE` statement. This ensures accurate modification tracking without requiring database triggers.
+
 
 ### Migrations
 - Initial migration `20260903_0818_bc111d17ffb2_create_initial_incident_and_.py` applied successfully.
@@ -264,23 +267,25 @@ OpsMind/
 ## 8. Verification Results
 
 ### 8.1 Automated Test Suite (`uv run pytest -v`)
-10 tests executed, **10 passed** (0 failures) in 3.04s:
+12 tests executed, **12 passed** (0 failures) in 2.94s:
 1. `test_health_live_endpoint`: Asserts `/health/live` returns HTTP 200 `{"status": "ok"}`.
 2. `test_health_ready_endpoint_connected`: Asserts `/health/ready` returns HTTP 200 `{"status": "ready", "database": "connected"}` with live DB.
 3. `test_health_ready_endpoint_disconnected`: Asserts `/health/ready` returns HTTP 503 `{"status": "not_ready", "database": "disconnected"}` when DB connectivity fails.
 4. `test_postgres_live_connectivity`: Asserts `check_db_connectivity()` succeeds against running PostgreSQL container.
 5. `test_incident_and_run_persistence_lifecycle`: Tests creating `Incident`, querying it back, adding associated `InvestigationRun`, verifying relationship navigation, and confirming cascading delete.
-6. `test_incident_instantiation`: Tests instantiating `Incident` domain model, verifying fields, status defaults, and `__repr__`.
-7. `test_investigation_run_instantiation`: Tests instantiating `InvestigationRun` domain model with JSON configurations.
-8. `test_incident_investigation_run_relationship`: Verifies parent-child ORM relationship between `Incident` and multiple `InvestigationRun` objects.
-9. `test_default_settings`: Verifies Pydantic settings defaults (app name, port, database URL, log level).
-10. `test_custom_settings_override`: Verifies environment variable overrides for settings.
+6. `test_incident_updated_at_advances`: Verifies that `Incident.updated_at` automatically advances when modified and committed in PostgreSQL.
+7. `test_investigation_run_updated_at_advances`: Verifies that `InvestigationRun.updated_at` automatically advances when modified and committed in PostgreSQL.
+8. `test_incident_instantiation`: Tests instantiating `Incident` domain model, verifying fields, status defaults, and `__repr__`.
+9. `test_investigation_run_instantiation`: Tests instantiating `InvestigationRun` domain model with JSON configurations.
+10. `test_incident_investigation_run_relationship`: Verifies parent-child ORM relationship between `Incident` and multiple `InvestigationRun` objects.
+11. `test_default_settings`: Verifies Pydantic settings defaults (app name, port, database URL, log level).
+12. `test_custom_settings_override`: Verifies environment variable overrides for settings.
 
 ### 8.2 Linter (`uv run ruff check .`)
 - Result: **All checks passed!** (0 errors, 0 warnings).
 
 ### 8.3 Formatter (`uv run ruff format --check .`)
-- Result: **54 files already formatted** (100% compliant).
+- Result: **56 files already formatted** (100% compliant).
 
 ### 8.4 Static Type Checking (`uv run mypy opsmind apps tests`)
 - Result: **Success: no issues found in 44 source files** (strict typing enabled).
