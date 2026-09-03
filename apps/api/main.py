@@ -6,6 +6,8 @@ from typing import Any
 
 from fastapi import FastAPI, Response, status
 
+from apps.api.errors import register_error_handlers
+from apps.api.routers import incidents_router, investigations_router
 from opsmind.common.logging import get_logger, setup_logging
 from opsmind.db.session import check_db_connectivity
 from opsmind.settings.config import get_settings
@@ -33,6 +35,13 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Register error handlers for domain exceptions and validation errors
+register_error_handlers(app)
+
+# Include domain routers
+app.include_router(incidents_router)
+app.include_router(investigations_router)
 
 
 @app.get(
