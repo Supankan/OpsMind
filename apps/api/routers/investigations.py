@@ -1,6 +1,7 @@
 """Investigations API router."""
 
 import uuid
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
@@ -10,6 +11,8 @@ from opsmind.incidents import service
 from opsmind.incidents.schemas import InvestigationRunRead
 
 router = APIRouter(prefix="/api/v1/investigations", tags=["Investigations"])
+
+DbSession = Annotated[Session, Depends(get_db_session)]
 
 
 @router.get(
@@ -21,7 +24,7 @@ router = APIRouter(prefix="/api/v1/investigations", tags=["Investigations"])
 )
 def get_investigation_run(
     run_id: uuid.UUID,
-    db: Session = Depends(get_db_session),
+    db: DbSession,
 ) -> InvestigationRunRead:
     """Retrieve an investigation run by primary key."""
     run = service.get_investigation_run(session=db, run_id=run_id)

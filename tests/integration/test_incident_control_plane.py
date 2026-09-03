@@ -1,14 +1,19 @@
 """Integration tests for the Incident & Investigation Control Plane API."""
 
+import threading
 import uuid
 from collections.abc import AsyncGenerator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 import httpx
 import pytest
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.main import app
+from opsmind.common.errors import ActiveInvestigationExistsError
+from opsmind.incidents.lifecycle import ACTIVE_INVESTIGATION_STATUSES
 from opsmind.incidents.models import (
     Incident,
     IncidentEnvironment,
@@ -17,6 +22,8 @@ from opsmind.incidents.models import (
     InvestigationRun,
     InvestigationRunStatus,
 )
+from opsmind.incidents.service import register_investigation_run
+from opsmind.settings.config import get_settings
 
 
 @pytest.fixture
@@ -366,3 +373,68 @@ async def test_validation_error_envelope_on_blank_title(
     assert body["error"]["code"] == "VALIDATION_ERROR"
     assert body["error"]["message"] == "Request validation failed."
     assert "errors" in body["error"]["details"]
+
+
+def test_concurrent_investigation_registration(db_session: Session) -> None:
+    """Test race-safety: concurrent registrations for the same incident must serialize.
+
+    Acceptance criteria:
+    - exactly one registration succeeds
+    - exactly one registration is rejected with ACTIVE_INVESTIGATION_EXISTS
+    - exactly one active investigation row exists afterward in PostgreSQL
+    """
+    incident = Incident(
+        title="Concurrency Test Incident",
+        status=IncidentStatus.DETECTED,
+    )
+    db_session.add(incident)
+    db_session.commit()
+    db_session.refresh(incident)
+    incident_id = incident.id
+
+    engine = create_engine(get_settings().database_url)
+    session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    barrier = threading.Barrier(2)
+    successful_runs: list[InvestigationRun] = []
+    failed_exceptions: list[Exception] = []
+
+    def attempt_registration() -> None:
+        session = session_factory()
+        try:
+            # Synchronize both threads so they execute with_for_update simultaneously
+            barrier.wait()
+            run = register_investigation_run(session, incident_id)
+            successful_runs.append(run)
+        except Exception as exc:
+            failed_exceptions.append(exc)
+        finally:
+            session.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        t1 = executor.submit(attempt_registration)
+        t2 = executor.submit(attempt_registration)
+        t1.result()
+        t2.result()
+
+    # 1. Exactly one registration succeeds
+    assert len(successful_runs) == 1
+
+    # 2. Exactly one registration is rejected with ACTIVE_INVESTIGATION_EXISTS
+    assert len(failed_exceptions) == 1
+    assert isinstance(failed_exceptions[0], ActiveInvestigationExistsError)
+    assert failed_exceptions[0].code == "ACTIVE_INVESTIGATION_EXISTS"
+
+    # 3. Exactly one active investigation row exists afterward in PostgreSQL
+    active_runs = db_session.scalars(
+        select(InvestigationRun).where(
+            InvestigationRun.incident_id == incident_id,
+            InvestigationRun.status.in_(ACTIVE_INVESTIGATION_STATUSES),
+        )
+    ).all()
+    assert len(active_runs) == 1
+    assert active_runs[0].id == successful_runs[0].id
+
+    # Cleanup
+    db_session.delete(incident)
+    db_session.commit()

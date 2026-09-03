@@ -122,7 +122,9 @@ def register_investigation_run(session: Session, incident_id: uuid.UUID) -> Inve
     3. Incident must not already have a PENDING or RUNNING investigation run.
     4. Registering a run does NOT alter the incident status.
     """
-    incident = session.get(Incident, incident_id)
+    # Lock parent incident row with SELECT ... FOR UPDATE to serialize concurrent registrations
+    incident_stmt = select(Incident).where(Incident.id == incident_id).with_for_update()
+    incident = session.scalar(incident_stmt)
     if incident is None:
         raise IncidentNotFoundError(incident_id)
 

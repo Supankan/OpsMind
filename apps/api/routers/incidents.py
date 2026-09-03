@@ -1,6 +1,7 @@
 """Incidents API router."""
 
 import uuid
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
@@ -18,6 +19,8 @@ from opsmind.incidents.schemas import (
 
 router = APIRouter(prefix="/api/v1/incidents", tags=["Incidents"])
 
+DbSession = Annotated[Session, Depends(get_db_session)]
+
 
 @router.post(
     "",
@@ -28,7 +31,7 @@ router = APIRouter(prefix="/api/v1/incidents", tags=["Incidents"])
 )
 def create_incident(
     payload: IncidentCreate,
-    db: Session = Depends(get_db_session),
+    db: DbSession,
 ) -> IncidentRead:
     """Create a new operational incident."""
     incident = service.create_incident(session=db, data=payload)
@@ -44,7 +47,7 @@ def create_incident(
 )
 def get_incident(
     incident_id: uuid.UUID,
-    db: Session = Depends(get_db_session),
+    db: DbSession,
 ) -> IncidentDetailRead:
     """Retrieve an incident by primary key."""
     incident, run_count = service.get_incident(session=db, incident_id=incident_id)
@@ -61,16 +64,16 @@ def get_incident(
     description="List incidents with pagination, filtering, and deterministic sorting (detected_at DESC, id DESC).",
 )
 def list_incidents(
-    limit: int = Query(default=20, ge=1, le=100, description="Page size"),
-    offset: int = Query(default=0, ge=0, description="Page offset"),
-    status_filter: IncidentStatus | None = Query(
-        default=None, alias="status", description="Filter by status"
-    ),
-    environment: IncidentEnvironment | None = Query(
-        default=None, description="Filter by environment"
-    ),
-    severity: IncidentSeverity | None = Query(default=None, description="Filter by severity"),
-    db: Session = Depends(get_db_session),
+    db: DbSession,
+    limit: Annotated[int, Query(ge=1, le=100, description="Page size")] = 20,
+    offset: Annotated[int, Query(ge=0, description="Page offset")] = 0,
+    status_filter: Annotated[
+        IncidentStatus | None, Query(alias="status", description="Filter by status")
+    ] = None,
+    environment: Annotated[
+        IncidentEnvironment | None, Query(description="Filter by environment")
+    ] = None,
+    severity: Annotated[IncidentSeverity | None, Query(description="Filter by severity")] = None,
 ) -> IncidentListResponse:
     """List incidents matching query parameters."""
     items, total = service.list_incidents(
@@ -98,7 +101,7 @@ def list_incidents(
 )
 def register_investigation(
     incident_id: uuid.UUID,
-    db: Session = Depends(get_db_session),
+    db: DbSession,
 ) -> InvestigationRunRead:
     """Register an automated investigation run for an eligible incident."""
     run = service.register_investigation_run(session=db, incident_id=incident_id)
