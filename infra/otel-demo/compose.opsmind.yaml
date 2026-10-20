@@ -1,6 +1,10 @@
 # OpsMind OpenTelemetry Demo Compose Overlay
-# Publishes missing host port mappings for Jaeger and OpenSearch on loopback.
-# Note: frontend-proxy (8080) and prometheus (9090) are already published by upstream.
+# Publishes missing host port mappings for Jaeger and OpenSearch on loopback (127.0.0.1).
+#
+# Note on Prometheus (9090) and Frontend-Proxy (8080):
+# Upstream compose files already publish them to 0.0.0.0. Because Docker Compose merges list items
+# by appending, adding 127.0.0.1 mappings here creates duplicate host port allocations. Modifying
+# upstream vendored files is forbidden, so Prometheus remains bound to 0.0.0.0:9090 as an upstream limitation.
 
 services:
   opensearch:

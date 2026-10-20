@@ -1,11 +1,16 @@
 # OpsMind Evaluator Baseline Manifest
 # Scenario: paymentServiceUnreachable
 #
-# IMPORTANT NOTICE: GROUND-TRUTH ISOLATION
-# This file is strictly evaluator infrastructure and test oracle specification.
-# It contains ground-truth fault injection parameters and expected telemetry manifestations.
-# Under NO circumstances should this file or any file in evaluation/ be indexed or ingested
-# into the future OpsMind Milvus RAG knowledge corpus.
+# IMPORTANT NOTICE: GROUND-TRUTH ISOLATION & BENCHMARK VISIBILITY POLICY
+# 1. GROUND-TRUTH ISOLATION:
+#    This file is strictly evaluator infrastructure and test oracle specification.
+#    It contains ground-truth fault injection parameters and expected telemetry manifestations.
+#    Under NO circumstances should this file or any file in evaluation/ be indexed or ingested
+#    into the future OpsMind Milvus RAG knowledge corpus.
+# 2. RAW vs AGENT-VISIBLE TELEMETRY:
+#    - RAW TELEMETRY (evaluator): includes full-fidelity telemetry, including feature_flag.* attributes.
+#    - AGENT-VISIBLE TELEMETRY (future Pass 04): feature_flag.* attributes MUST be redacted/filtered
+#      before being presented to the OpsMind diagnostic agent to prevent benchmark leakage.
 
 schema_version: "1.0"
 scenario_id: "payment_service_unreachable_v1"
@@ -14,6 +19,17 @@ description: >
   Simulates a failure in the checkout service where the payment service address is set to an unreachable
   address (badAddress:50051) via feature flag, causing gRPC client name resolution failure and downstream
   HTTP 500 errors on checkout submissions.
+
+agent_visibility_policy:
+  forbidden_trace_attribute_prefixes:
+    - "feature_flag."
+  forbidden_span_event_attribute_prefixes:
+    - "feature_flag."
+  rationale: >
+    Feature-flag telemetry (e.g. feature_flag.key="paymentUnreachable", feature_flag.result.variant="on",
+    feature_flag.result.value=true) directly reveals the injected benchmark fault. These attributes are
+    strictly evaluator-only for ground-truth verification and MUST be redacted/filtered by future Pass 04
+    agent-facing telemetry tools before returning trace or log content to the OpsMind diagnostic agent.
 
 sut:
   name: "opentelemetry-demo"
@@ -69,6 +85,7 @@ telemetry_evidence:
           otel.status_description: "failed to charge card: could not charge the card: rpc error: code = Unavailable desc = name resolver error: produced zero addresses"
         log_events:
           exception.message: "could not charge the card: rpc error: code = Unavailable desc = name resolver error: produced zero addresses"
+          # Evaluator-only raw telemetry attributes (forbidden from agent visibility per agent_visibility_policy):
           feature_flag.key: "paymentUnreachable"
           feature_flag.result.variant: "on"
       - service: "frontend"

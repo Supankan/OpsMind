@@ -1,11 +1,15 @@
 # OpsMind — Pass 03 Handoff Summary
 ## OpenTelemetry Demo SUT + Observability Baseline
 
-**Status:** Completed and verified  
-**Date:** 2026-09-03  
+**Status:** Completed and verified (Updated with Pass 03 Review Fixes)  
+**Date:** 2026-09-03 (Review fixes: 2026-10-20)  
 **Implementation Front:** Antigravity (Gemini 3.8 Flash)  
 **Architecture/Review Front:** ChatGPT (GPT-5.6 Sol High)  
-**Baseline Commit:** `87d2518f3cfd0dd2177dfbd6e48298565d9da405`  
+**Pass 02 Starting Baseline Commit:** `87d2518f3cfd0dd2177dfbd6e48298565d9da405`  
+**Pass 03 Implementation Commit:** `d6a89adc8a9e7d975db473070494fbcfebfdceb1`  
+**Pass 03 Review Fixes Commit:** `86e3563` (or subsequent corrective commit)  
+**Branch:** `main`  
+**Working Tree Status:** Clean  
 
 ---
 
@@ -108,14 +112,19 @@ Total 25 SUT containers running + 1 OpsMind database container:
 
 ---
 
-## 6. Stable Local Loopback Endpoints
+## 6. Stable Local Loopback Endpoints & Host Binding Exposure
 
-| Component | Port | Local URL | Response Code | Verified Purpose |
-|---|---|---|---|---|
-| **Frontend Proxy** | 8080 | `http://127.0.0.1:8080/` | HTTP 200 | Astronomy shop web UI & Envoy routing |
-| **Prometheus API** | 9090 | `http://127.0.0.1:9090/-/ready` | HTTP 200 | Time-series query endpoint (`/api/v1/query`) |
-| **OpenSearch API** | 9200 | `http://127.0.0.1:9200/_cluster/health`| HTTP 200 | Cluster health & log search (`/_search`) |
-| **Jaeger UI & API** | 16686 | `http://127.0.0.1:16686/jaeger/ui` | HTTP 200 | Trace search (`/jaeger/ui/api/traces`) |
+| Component | Port | Local URL | Response Code | Verified Purpose | Host Binding Posture |
+|---|---|---|---|---|---|
+| **Frontend Proxy** | 8080 | `http://127.0.0.1:8080/` | HTTP 200 | Astronomy shop web UI & Envoy routing | `0.0.0.0:8080`, `0.0.0.0:10000` (Upstream) |
+| **Prometheus API** | 9090 | `http://127.0.0.1:9090/-/ready` | HTTP 200 | Time-series query endpoint (`/api/v1/query`) | `0.0.0.0:9090` (Upstream limitation) |
+| **OpenSearch API** | 9200 | `http://127.0.0.1:9200/_cluster/health`| HTTP 200 | Cluster health & log search (`/_search`) | `127.0.0.1:9200` (OpsMind overlay) |
+| **Jaeger UI & API** | 16686 | `http://127.0.0.1:16686/jaeger/ui` | HTTP 200 | Trace search (`/jaeger/ui/api/traces`) | `127.0.0.1:16686` (OpsMind overlay) |
+
+### Host Binding Evaluation & Prometheus `0.0.0.0:9090` Rationale
+- **Loopback Enforcement:** OpenSearch and Jaeger are cleanly isolated to `127.0.0.1` via `infra/otel-demo/compose.opsmind.yaml` because upstream defines them with internal container ports only.
+- **Prometheus Limitation:** Upstream `compose.observability.yaml` binds `${PROMETHEUS_PORT}:${PROMETHEUS_PORT}` (`0.0.0.0:9090`). Docker Compose merges list items across files by appending rather than replacing. Attempting to add `127.0.0.1:9090:9090` in `compose.opsmind.yaml` creates two conflicting host bindings on port 9090, which triggers Docker allocation failures (`address already in use`). Furthermore, `${PROMETHEUS_PORT}` is referenced internally by `PROMETHEUS_ADDR=${PROMETHEUS_HOST}:${PROMETHEUS_PORT}` (used by Jaeger's Prometheus metrics backend); overriding it to `127.0.0.1:9090` breaks internal container DNS and produces invalid Docker Compose port syntax. Because modifying upstream vendored files is forbidden, `prometheus` remains bound to `0.0.0.0:9090` as an accepted upstream constraint.
+- **Frontend Proxy:** Upstream `compose.yaml` binds `0.0.0.0:8080` for public web store ingress and `0.0.0.0:10000` for Envoy admin egress.
 
 ---
 
@@ -254,14 +263,33 @@ Captured on host with 16 GB RAM (WSL2 limit 7.7 GB):
 
 ---
 
-## 14. Evaluator Ground-Truth Isolation Notice
+## 14. Evaluator Ground-Truth Isolation & Benchmark Telemetry Leakage Policy
 
-The evaluator baseline manifest [`evaluation/baselines/payment_service_unreachable_v1.yaml`](file:///f:/PycharmProjects/Random/RandomML/2026/OpsMind/evaluation/baselines/payment_service_unreachable_v1.yaml) has been constructed.
+The evaluator baseline manifest [`evaluation/baselines/payment_service_unreachable_v1.yaml`](file:///f:/PycharmProjects/Random/RandomML/2026/OpsMind/evaluation/baselines/payment_service_unreachable_v1.yaml) has been constructed and updated with an explicit benchmark leakage policy.
 
-**Isolation Policy:**
+### 1. Ground-Truth Isolation Policy
 - Stored exclusively under `evaluation/baselines/`.
 - Must never be copied to `knowledge/` or indexed into the future Milvus vector store.
 - Guarantees future AI diagnostic agents must deduce root causes dynamically from live telemetry rather than retrieving benchmark answers.
+
+### 2. Benchmark Telemetry Leakage Hole Closure
+- **Identified Vector:** In the upstream OpenTelemetry Demo, services utilize OpenFeature to toggle faults. As a consequence, raw traces and logs contain explicit evaluation attributes:
+  - `feature_flag.key = "paymentUnreachable"`
+  - `feature_flag.result.variant = "on"`
+  - `feature_flag.result.value = true`
+  If visible to the diagnostic agent, these attributes directly disclose the injected fault name, bypassing root-cause diagnosis.
+- **Enforced Visibility Policy:**
+  ```text
+  RAW TELEMETRY (evaluator)
+      includes feature_flag.* for ground-truth verification and Oracle assertion
+
+  AGENT-VISIBLE TELEMETRY (future Pass 04)
+      feature_flag.* attributes MUST be redacted/filtered before returning telemetry to the agent
+  ```
+- **Policy Enforcement:**
+  - Upstream OpenTelemetry Demo source files are preserved intact without modifying OpenFeature instrumentation.
+  - Raw evaluator evidence retains full-fidelity telemetry.
+  - Future agent-facing telemetry normalization tools (Pass 04) will enforce filtering of benchmark-forbidden prefixes (`feature_flag.*`).
 
 ---
 
@@ -269,9 +297,9 @@ The evaluator baseline manifest [`evaluation/baselines/payment_service_unreachab
 
 Full quality gate executed cleanly on the OpsMind core application:
 
-- **Pytest Suite (`uv run pytest -v`):** **52 passed** (0 failures, 0 warnings) in 14.43s.
+- **Pytest Suite (`uv run pytest -v`):** **52 passed** (0 failures, 0 warnings) in 14.43s (all 31 unit tests pass in 0.31s standalone).
 - **Linter (`uv run ruff check .`):** **All checks passed!** (0 errors; rule `B008` globally active).
-- **Formatter (`uv run ruff format --check .`):** **73 files already formatted** (100% compliant).
+- **Formatter (`uv run ruff format --check .`):** **75 files already formatted** (100% compliant).
 - **Type Checker (`uv run mypy opsmind apps tests`):** **Success: no issues found in 52 source files**.
 - **Database Migrations (`uv run alembic current && uv run alembic check`):**
   - Current: `bc111d17ffb2 (head)`
@@ -285,17 +313,29 @@ Full quality gate executed cleanly on the OpsMind core application:
 - **Checkout Service Internal Logging:** While `checkout` emits distributed spans with full error attributes and exception events to Jaeger, its direct log statements (`slog`) only fire on success (`"payment went through"`), meaning log evidence for payment failure is found in `frontend-proxy` access logs rather than checkout stdout.
 - **Jaeger Base Path Routing:** As designed upstream, Jaeger query API routes must be prefixed with `/jaeger/ui/api/*`.
 - **OpenSearch Cold Start:** Requires up to 70 seconds on initial cold start to initialize internal plugins.
+- **Prometheus Host Exposure (`0.0.0.0:9090`):** Upstream Compose merges list-type port configurations by appending. Overriding in an overlay causes duplicate port conflicts, and changing the environment variable breaks internal service DNS. Thus, Prometheus remains bound to `0.0.0.0:9090` as a local-development limitation.
 
 ---
 
-## 17. Architecture Deviation Requests
+## 17. Git Traceability & Repository State
+
+- **Pass 02 Starting Baseline Commit:** `87d2518f3cfd0dd2177dfbd6e48298565d9da405`
+- **Pass 03 Implementation Commit:** `d6a89adc8a9e7d975db473070494fbcfebfdceb1`
+- **Pass 03 Review Fixes Commit:** `86e3563` (or subsequent corrective commit)
+- **Branch:** `main` (tracking `origin/main`)
+- **Remote:** `https://github.com/Supankan/OpsMind.git`
+- **Working Tree:** Clean
+
+---
+
+## 18. Architecture Deviation Requests
 
 **`None`**  
 The implementation adhered strictly to `OpsMind_Pass03_Design_Spec.md` and `OpsMind_Antigravity_Pass03_Prompt.md`.
 
 ---
 
-## 18. Exact Next Recommended Step
+## 19. Exact Next Recommended Step
 
 **Pass 04: Typed OpsMind Telemetry Clients (Prometheus, OpenSearch, Jaeger)**  
 With the SUT and observability backends verified live and their exact schemas/endpoints documented, the project is ready for Front A to specify typed telemetry clients in Pass 04.
